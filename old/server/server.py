@@ -107,5 +107,9 @@ def start_server():
         conn, addr = s.accept()
         threading.Thread(target=handle_client, args=(conn, addr)).start()
 
+from database import init_default_users
+...
 if __name__ == "__main__":
+    print("now server:")
+    init_default_users()  # ← اضافه کردن کاربران اولیه
     start_server()

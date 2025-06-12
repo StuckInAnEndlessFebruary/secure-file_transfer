@@ -1,3 +1,4 @@
+# server/database.py
 import sqlite3
 
 def init_db():
@@ -35,3 +36,31 @@ def update_role(username, new_role):
     c.execute("UPDATE users SET role = ? WHERE username = ?", (new_role, username))
     conn.commit()
     conn.close()
+
+
+import os
+
+def init_default_users():
+    if os.path.exists("users.db"):
+        return  # دیتابیس وجود دارد → نیازی به ایجاد نیست
+
+    print("⚙ ایجاد دیتابیس و افزودن کاربران اولیه...")
+
+    init_db()
+
+    default_users = {
+        "admin1": ("1234", "admin"),
+        "maint1": ("1234", "maintainer"),
+        "guest1": ("1234", "guest"),
+        "guest2": ("1234", "guest"),
+        "guest3": ("1234", "guest")
+    }
+
+    for username, (password, role) in default_users.items():
+        try:
+            with open(f"../keys/public_keys/{username}_public.pem", "rb") as f:
+                pub_key_pem = f.read()
+                add_user(username, password, role, pub_key_pem)
+                print(f"✅ کاربر {username} با نقش {role} افزوده شد.")
+        except Exception as e:
+            print(f"❌ خطا در افزودن {username}: {e}")
