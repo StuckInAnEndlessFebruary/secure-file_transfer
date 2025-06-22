@@ -1,4 +1,3 @@
-# initialize.py
 import os
 import shutil
 import secrets
@@ -8,8 +7,27 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from hashlib import sha256
 from server import init_db
+import sys
 
 DB = 'server_data.db'
+LOG_FILE = 'initialize.txt'
+
+class DualLogger:
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, 'w', encoding='utf-8')
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+# جایگزین کردن خروجی پیش‌فرض با DualLogger
+sys.stdout = DualLogger(LOG_FILE)
+
 
 def initialize_system():
     print("Initializing system...")

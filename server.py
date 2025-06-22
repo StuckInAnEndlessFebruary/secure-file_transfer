@@ -1,10 +1,10 @@
-# server.py
 import socket
 import threading
 import sqlite3
 import os
 import json
 import base64
+import time
 from hashlib import sha256
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
@@ -15,6 +15,11 @@ import secrets
 DB = 'server_data.db'
 KEYS_DIR = 'server_files'
 SYM_KEY_SIZE = 32
+LOG_FILE = 'server.log'
+
+FAILED_LOGIN_LIMIT = 3
+BLOCK_DURATION = 300  # seconds (5 minutes)
+failed_logins = {}  # {username: [count, last_attempt_time]}
 
 def init_db():
     with sqlite3.connect(DB) as conn:
@@ -31,6 +36,14 @@ def init_db():
                         data BLOB,
                         signature TEXT)''')
         conn.commit()
+
+def log_event(message):
+    with open(LOG_FILE, 'a') as f:
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S %Z')
+
+        f.write(f"[{now} UTC] {message}\n")
 
 class FileServer:
     def __init__(self):
@@ -91,27 +104,46 @@ class FileServer:
                     (data['username'], sha256(data['password'].encode()).hexdigest(), 'guest', data['public_key']))
                 db.commit()
                 conn.sendall(json.dumps({'status': 'success'}).encode())
+                log_event(f"User signed up: {data['username']}")
             except:
                 conn.sendall(json.dumps({'status': 'fail'}).encode())
 
     def handle_login(self, conn, data):
+        u = data['username']
+        now = time.time()
+
+        if u in failed_logins:
+            count, last_time = failed_logins[u]
+            if count >= FAILED_LOGIN_LIMIT and now - last_time < BLOCK_DURATION:
+                conn.sendall(json.dumps({'status': 'blocked'}).encode())
+                return None
+            elif now - last_time >= BLOCK_DURATION:
+                failed_logins[u] = [0, 0]
+
         with sqlite3.connect(DB) as db:
             cur = db.cursor()
-            cur.execute("SELECT password, role, public_key FROM users WHERE username=?", (data['username'],))
+            cur.execute("SELECT password, role, public_key FROM users WHERE username=?", (u,))
             row = cur.fetchone()
             if not row or row[0] != sha256(data['password'].encode()).hexdigest():
+                failed_logins[u] = failed_logins.get(u, [0, 0])
+                failed_logins[u][0] += 1
+                failed_logins[u][1] = now
                 conn.sendall(json.dumps({'status': 'fail'}).encode())
+                log_event(f"Failed login attempt for user: {u}")
                 return None
+
+            failed_logins[u] = [0, 0]  # reset on successful login
             sym = secrets.token_bytes(SYM_KEY_SIZE)
             pub_key = serialization.load_pem_public_key(data['public_key'].encode(), backend=default_backend())
             enc_sym = pub_key.encrypt(sym, padding.OAEP(padding.MGF1(hashes.SHA256()), hashes.SHA256(), None))
-            self.sym_keys[data['username']] = sym
+            self.sym_keys[u] = sym
             conn.sendall(json.dumps({
                 'status': 'success',
                 'role': row[1],
                 'sym_key': base64.b64encode(enc_sym).decode()
             }).encode())
-            return data['username']
+            log_event(f"User logged in: {u}")
+            return u
 
     def _encrypt(self, data, key):
         iv = secrets.token_bytes(12)
@@ -131,18 +163,25 @@ class FileServer:
     def handle_request(self, req, user):
         action = req.get('action')
         if action == 'upload':
+            log_event(f"{user} uploaded a file: {req.get('filename')}")
             return self.upload_file(req, user)
         elif action == 'list_files':
             return self.list_files()
         elif action == 'download':
+            log_event(f"{user} downloaded file ID: {req.get('file_id')}")
             return self.download_file(req)
         elif action == 'delete_file':
-            return self.delete_file(req, user)
+            result = self.delete_file(req, user)
+            if result.get('status') == 'success':
+                log_event(f"{user} deleted file ID: {req.get('file_id')}")
+            return result
         elif action == 'list_users':
             return self.list_users()
         elif action == 'update_role':
+            log_event(f"{user} updated role of {req.get('username')} to {req.get('role')}")
             return self.update_user_role(req)
         elif action == 'delete_user':
+            log_event(f"{user} deleted user: {req.get('username')}")
             return self.delete_user(req)
         elif action == 'get_user_pubkey':
             return self.get_user_pubkey(req)

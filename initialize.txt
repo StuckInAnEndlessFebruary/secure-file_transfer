@@ -1,0 +1,11 @@
+(base) PS C:\Users\HP\Desktop\secure-file_transfer> python initialize.py
+Initializing system...
+Creating default users...
+  • User: admin, Password: h4jMz3d9xdUP2u_b
+  • User: maintainer, Password: xE-7pvDD1hzuwHoB
+  • User: guest1, Password: PUUX16BNOzTlMVVQ   
+Default users processed.
+
+System initialized successfully!
+Default users created with their passwords and key-pairs.
+Passwords are printed below. Private keys are in 'client_keys/'.
